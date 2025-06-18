@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import SupplierTopBar from '../../components/SupplierTopBar';
 import Alert from '../../components/Alert';
-import AddProductPopup from '../../components/supplier/AddProductPopUp';
+import AddProductPopup from '../../components/supplier/AddProductPopup';
 import EditProductPopup from '../../components/supplier/EditProductPopup';
 import ProductDetailsSidebar from '../../components/supplier/ProductDetailsSidebar';
 import * as XLSX from 'xlsx';
