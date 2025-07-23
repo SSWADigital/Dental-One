@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
+import { supabase } from '../supabaseClient';
+import { useTranslation } from 'react-i18next';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -8,21 +10,55 @@ const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [userType, setUserType] = useState<'clinic' | 'supplier'>('clinic');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
 
-    // Simulate login process
-    setTimeout(() => {
-      if (userType === 'clinic') {
-        navigate('/dashboard');
-      } else {
-        navigate('/supplier/statistics');
-      }
+    // 1. Sign in with Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError) {
+      setError(authError.message);
       setIsLoading(false);
-    }, 1000);
+      return;
+    }
+
+    // 2. Fetch user profile (role) from 'profiles' table
+    const userId = authData.user.id;
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      setError('Profile not found. Please contact support.');
+      setIsLoading(false);
+      return;
+    }
+
+    // 3. Check if role matches the selected portal
+    if (profile.role !== userType) {
+      setError('You are not authorized for this portal.');
+      setIsLoading(false);
+      return;
+    }
+
+    // 4. Redirect based on role
+    if (profile.role === 'clinic') {
+      navigate('/dashboard');
+    } else if (profile.role === 'supplier') {
+      navigate('/supplier/statistics');
+    }
+    setIsLoading(false);
   };
 
   return (
@@ -37,7 +73,6 @@ const Login: React.FC = () => {
               className="h-auto w-auto"
             />
           </div>
-          {/* <p className="text-gray-600">Sign in to your account</p> */}
         </div>
 
         {/* Login Form */}
@@ -53,7 +88,7 @@ const Login: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-800'
               }`}
             >
-              Clinic Portal
+              {t('Sign in to Clinic Portal')}
             </button>
             <button
               type="button"
@@ -64,7 +99,7 @@ const Login: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-800'
               }`}
             >
-              Supplier Portal
+              {t('Sign in to Supplier Portal')}
             </button>
           </div>
 
@@ -72,7 +107,7 @@ const Login: React.FC = () => {
             {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
+                {t('Email')}
               </label>
               <input
                 id="email"
@@ -88,7 +123,7 @@ const Login: React.FC = () => {
             {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
+                {t('Password')}
               </label>
               <div className="relative">
                 <input
@@ -98,7 +133,7 @@ const Login: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors pr-12"
-                  placeholder="Enter your password"
+                  placeholder={t('Password')}
                 />
                 <button
                   type="button"
@@ -117,12 +152,17 @@ const Login: React.FC = () => {
                   type="checkbox"
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span className="ml-2 text-sm text-gray-600">Remember me</span>
+                <span className="ml-2 text-sm text-gray-600">{t('Remember me')}</span>
               </label>
               <a href="#" className="text-sm text-blue-600 hover:text-blue-800">
-                Forgot password?
+                {t('Forgot password?')}
               </a>
             </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="text-red-600 text-sm text-center font-medium">{error}</div>
+            )}
 
             {/* Submit Button */}
             <button
@@ -133,10 +173,10 @@ const Login: React.FC = () => {
               {isLoading ? (
                 <div className="flex items-center justify-center">
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Signing in...
+                  {t('Loading...')}
                 </div>
               ) : (
-                `Sign in to ${userType === 'clinic' ? 'Clinic' : 'Supplier'} Portal`
+                t(userType === 'clinic' ? 'Sign in to Clinic Portal' : 'Sign in to Supplier Portal')
               )}
             </button>
           </form>
@@ -153,9 +193,9 @@ const Login: React.FC = () => {
           {/* Footer */}
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              Don't have an account?{' '}
+              Belum punya akun?{' '}
               <a href="#" className="text-blue-600 hover:text-blue-800 font-medium">
-                Contact support
+                Hubungi support
               </a>
             </p>
           </div>

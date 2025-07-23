@@ -1,58 +1,80 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronDown, Info, ChevronRight } from 'lucide-react';
+import { getPurchaseRequests } from '../api/purchaseRequest';
+import { useAuth, useUserSettings } from '../App';
+import PurchaseRequestDetail from './PurchaseRequestDetail';
+
+const PAGE_SIZE = 5;
 
 const PurchaseRequestHistory = () => {
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [timeFilter, setTimeFilter] = useState('Last 30 days');
   const [currentPage, setCurrentPage] = useState(1);
+  const [requests, setRequests] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [selectedPrId, setSelectedPrId] = useState<string | null>(null);
+  const { user } = useAuth();
+  const { settings: userSettings, loading: settingsLoading } = useUserSettings();
+  if (settingsLoading) return <div>Loading...</div>;
+  const currency = userSettings?.currency || 'USD';
+  const language = userSettings?.language || 'en';
+  const currencyFormatter = new Intl.NumberFormat(language, { style: 'currency', currency, minimumFractionDigits: 2 });
 
-  const requests = [
-    {
-      id: 'PR-2022-0042',
-      dateSubmitted: 'Dec 6, 2022',
-      status: 'Pending',
-      department: 'Dental Surgery',
-      items: 5,
-      totalCost: 521.63,
-      statusColor: 'bg-yellow-100 text-yellow-800'
-    },
-    {
-      id: 'PR-2022-0041',
-      dateSubmitted: 'Dec 5, 2022',
-      status: 'Approved',
-      department: 'General Dentistry',
-      items: 8,
-      totalCost: 842.50,
-      statusColor: 'bg-green-100 text-green-800'
-    },
-    {
-      id: 'PR-2022-0040',
-      dateSubmitted: 'Dec 3, 2022',
-      status: 'Rejected',
-      department: 'Orthodontics',
-      items: 3,
-      totalCost: 156.75,
-      statusColor: 'bg-red-100 text-red-800'
-    },
-    {
-      id: 'PR-2022-0039',
-      dateSubmitted: 'Dec 1, 2022',
-      status: 'Approved',
-      department: 'Pediatric Dentistry',
-      items: 12,
-      totalCost: 1245.00,
-      statusColor: 'bg-green-100 text-green-800'
-    },
-    {
-      id: 'PR-2022-0038',
-      dateSubmitted: 'Nov 28, 2022',
-      status: 'Approved',
-      department: 'Dental Surgery',
-      items: 6,
-      totalCost: 532.25,
-      statusColor: 'bg-green-100 text-green-800'
+  useEffect(() => {
+    if (user) {
+      fetchPage(currentPage);
     }
-  ];
+    // eslint-disable-next-line
+  }, [user, statusFilter, timeFilter, currentPage]);
+
+  const fetchPage = async (page: number) => {
+    if (!user) return;
+    // Fetch all, then filter and paginate in frontend (for now, for filter compatibility)
+    const res = await getPurchaseRequests(user.id);
+    if (res.data) {
+      let filtered = res.data;
+      // Filter by status
+      if (statusFilter !== 'All Status') {
+        filtered = filtered.filter(r => r.status === statusFilter.toLowerCase());
+      }
+      // Filter by time
+      filtered = filtered.filter(request => {
+        const date = new Date(request.date);
+        const now = new Date();
+        if (timeFilter === 'Last 30 days') {
+          const diff = (now.getTime() - date.getTime()) / (1000 * 3600 * 24);
+          if (diff > 30) return false;
+        }
+        if (timeFilter === 'Last 7 days') {
+          const diff = (now.getTime() - date.getTime()) / (1000 * 3600 * 24);
+          if (diff > 7) return false;
+        }
+        if (timeFilter === 'Last 90 days') {
+          const diff = (now.getTime() - date.getTime()) / (1000 * 3600 * 24);
+          if (diff > 90) return false;
+        }
+        if (timeFilter === 'This year') {
+          if (date.getFullYear() !== now.getFullYear()) return false;
+        }
+        return true;
+      });
+      setTotalCount(filtered.length);
+      const start = (page - 1) * PAGE_SIZE;
+      const end = start + PAGE_SIZE;
+      setRequests(filtered.slice(start, end));
+    }
+  };
+
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending': return 'bg-yellow-100 text-yellow-800';
+      case 'approved': return 'bg-green-100 text-green-800';
+      case 'rejected': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -62,7 +84,7 @@ const PurchaseRequestHistory = () => {
           <div className="relative">
             <select 
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
               className="appearance-none bg-white border border-gray-300 rounded-lg px-4 py-2 pr-8 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option>All Status</option>
@@ -75,7 +97,7 @@ const PurchaseRequestHistory = () => {
           <div className="relative">
             <select 
               value={timeFilter}
-              onChange={(e) => setTimeFilter(e.target.value)}
+              onChange={(e) => { setTimeFilter(e.target.value); setCurrentPage(1); }}
               className="appearance-none bg-white border border-gray-300 rounded-lg px-4 py-2 pr-8 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option>Last 30 days</option>
@@ -106,19 +128,22 @@ const PurchaseRequestHistory = () => {
             {requests.map((request) => (
               <tr key={request.id} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="py-4 px-4">
-                  <span className="text-blue-600 font-medium hover:underline cursor-pointer">
-                    {request.id}
+                  <span
+                    className="text-blue-600 font-medium hover:underline cursor-pointer"
+                    onClick={() => setSelectedPrId(request.pr_id)}
+                  >
+                    {request.pr_id}
                   </span>
                 </td>
-                <td className="py-4 px-4 text-gray-600">{request.dateSubmitted}</td>
+                <td className="py-4 px-4 text-gray-600">{request.date}</td>
                 <td className="py-4 px-4">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${request.statusColor}`}>
-                    {request.status}
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}>
+                    {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
                   </span>
                 </td>
                 <td className="py-4 px-4 text-gray-600">{request.department}</td>
                 <td className="py-4 px-4 text-gray-600">{request.items}</td>
-                <td className="py-4 px-4 font-medium text-gray-900">${request.totalCost.toFixed(2)}</td>
+                <td className="py-4 px-4 font-medium text-gray-900">{currencyFormatter.format(Number(request.total_cost))}</td>
                 <td className="py-4 px-4">
                   <div className="flex space-x-2">
                     <button className="p-1 text-gray-400 hover:text-gray-600">
@@ -140,18 +165,32 @@ const PurchaseRequestHistory = () => {
         <button 
           className="px-4 py-2 text-gray-600 hover:text-gray-800 disabled:opacity-50"
           disabled={currentPage === 1}
+          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
         >
           Previous
         </button>
         <div className="flex space-x-2">
-          <button className="w-8 h-8 rounded bg-blue-600 text-white text-sm">1</button>
-          <button className="w-8 h-8 rounded text-gray-600 hover:bg-gray-100 text-sm">2</button>
-          <button className="w-8 h-8 rounded text-gray-600 hover:bg-gray-100 text-sm">3</button>
+          {Array.from({ length: totalPages }, (_, i) => (
+            <button
+              key={i + 1}
+              className={`w-8 h-8 rounded ${currentPage === i + 1 ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              onClick={() => setCurrentPage(i + 1)}
+            >
+              {i + 1}
+            </button>
+          ))}
         </div>
-        <button className="px-4 py-2 text-gray-600 hover:text-gray-800">
+        <button
+          className="px-4 py-2 text-gray-600 hover:text-gray-800 disabled:opacity-50"
+          disabled={currentPage === totalPages}
+          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+        >
           Next
         </button>
       </div>
+      {selectedPrId && (
+        <PurchaseRequestDetail prId={selectedPrId} onClose={() => setSelectedPrId(null)} />
+      )}
     </div>
   );
 };

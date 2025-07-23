@@ -1,6 +1,13 @@
-import React, { useState } from 'react';
-import { MapPin, Search, Plus, Minus, Info, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { MapPin, Search, Plus, Minus, Info, ChevronRight, Trash2 } from 'lucide-react';
 import ProductCatalogPopup from './ProductCatalogPopup';
+import { createPurchaseRequest } from '../api/purchaseRequest';
+import { useAuth } from '../App';
+import { getAllProducts } from '../api/product';
+import { useUserSettings } from '../App';
+import ModalDialog from './ModalDialog';
+import { useNavigate } from 'react-router-dom';
+import { createDraftPurchaseRequest } from '../api/purchaseRequest';
 
 interface Product {
   id: string;
@@ -19,6 +26,7 @@ interface Product {
 
 interface RequestItem {
   id: number;
+  product_id?: string; // <-- Tambahkan ini!
   name: string;
   sku: string;
   supplier: string;
@@ -26,53 +34,116 @@ interface RequestItem {
   quantity: number;
   unitPrice: number;
   total: number;
+  currency: string;
 }
 
 const PurchaseRequestForm = () => {
   const [department, setDepartment] = useState('Dental Surgery');
-  const [requiredBy, setRequiredBy] = useState('Dec 15, 2022');
+  const [requiredBy, setRequiredBy] = useState(() => new Date().toISOString().slice(0, 10));
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showCatalogPopup, setShowCatalogPopup] = useState(false);
+  const [items, setItems] = useState<RequestItem[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const { user } = useAuth();
+  const [products, setProducts] = useState<Product[]>([]);
+  const { settings: userSettings, loading: settingsLoading } = useUserSettings();
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [showDraftSaved, setShowDraftSaved] = useState(false);
+  const navigate = useNavigate();
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [showStockAlert, setShowStockAlert] = useState(false);
 
-  const [items, setItems] = useState<RequestItem[]>([
-    {
-      id: 1,
-      name: 'Dental Brush',
-      sku: 'DB-1001',
-      supplier: 'Cobra Dental Indonesia',
-      stockAvail: 3,
-      quantity: 10,
-      unitPrice: 12.50,
-      total: 125.00
-    },
-    {
-      id: 2,
-      name: 'Charmflex Regular',
-      sku: 'CR-2034',
-      supplier: 'Cobra Dental Indonesia',
-      stockAvail: 2,
-      quantity: 15,
-      unitPrice: 8.75,
-      total: 131.25
-    },
-    {
-      id: 3,
-      name: 'Latex Gloves (Box)',
-      sku: 'LG-3045',
-      supplier: 'Cobra Dental Indonesia',
-      stockAvail: 5,
-      quantity: 20,
-      unitPrice: 15.00,
-      total: 300.00
+  console.log('userSettings:', userSettings);
+
+  if (settingsLoading) {
+    return <div>Loading...</div>;
+  }
+
+  // Currency formatter
+  const currency = userSettings?.currency || 'USD';
+  console.log('currency used in formatter:', currency);
+  const currencyFormatter = new Intl.NumberFormat(userSettings?.language || 'en', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+  });
+
+  const convertPrice = (product: Product) => {
+    if (currency === 'IDR') {
+      if (product.id.startsWith('external-')) return product.price;
+      return product.price * 16000;
     }
-  ]);
+    return product.price;
+  };
+
+  useEffect(() => {
+    getAllProducts().then(res => {
+      if (res.data) setProducts(res.data);
+    });
+  }, []);
+
+  // Load draft on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('purchaseRequestDraft');
+    if (saved) {
+      const draft = JSON.parse(saved);
+      if (draft.department) setDepartment(draft.department);
+      if (draft.requiredBy) setRequiredBy(draft.requiredBy);
+      if (draft.location) setLocation(draft.location);
+      if (draft.notes) setNotes(draft.notes);
+      if (draft.items) setItems(draft.items);
+    } else {
+      // Jika tidak ada draft, load hanya items keranjang jika ada
+      const savedItems = localStorage.getItem('purchaseRequestDraftItems');
+      if (savedItems) setItems(JSON.parse(savedItems));
+    }
+  }, []);
+
+  // Auto-save items ke localStorage setiap kali berubah
+  useEffect(() => {
+    localStorage.setItem('purchaseRequestDraftItems', JSON.stringify(items));
+  }, [items]);
+
+  // Save Draft (seluruh form)
+  const saveDraft = async () => {
+    setSaveStatus('idle');
+    if (!user) return;
+    const draft = {
+      user_id: user.id,
+      name: `Draft PR - ${new Date().toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+      department,
+      type: items.length > 0 && items.some(i => i.name.toLowerCase().includes('jasa')) ? 'Jasa' : 'Barang',
+      items,
+      notes,
+      location,
+      required_by: requiredBy,
+      status: 'Baru',
+      total_item: items.length,
+      est_cost: items.reduce((sum, i) => sum + i.total, 0),
+    };
+    const { error } = await createDraftPurchaseRequest(draft);
+    if (error) {
+      setSaveStatus('error');
+    } else {
+      setSaveStatus('success');
+      setItems([]);
+      localStorage.removeItem('purchaseRequestDraft');
+      localStorage.removeItem('purchaseRequestDraftItems');
+    }
+  };
 
   const updateQuantity = (id: number, change: number) => {
     setItems(items.map(item => {
       if (item.id === id) {
-        const newQuantity = Math.max(0, item.quantity + change);
+        let newQuantity = item.quantity + change;
+        if (newQuantity > item.stockAvail) {
+          setShowStockAlert(true);
+          newQuantity = item.stockAvail;
+        }
+        newQuantity = Math.max(0, newQuantity);
         return {
           ...item,
           quantity: newQuantity,
@@ -83,19 +154,38 @@ const PurchaseRequestForm = () => {
     }));
   };
 
+  // Fungsi hapus item dari keranjang
+  const removeItem = (id: number) => {
+    setItems(items.filter(item => item.id !== id));
+  };
+
   const handleAddFromCatalog = (product: Product, quantity: number) => {
-    const newItem: RequestItem = {
-      id: Math.max(...items.map(i => i.id), 0) + 1,
-      name: product.name,
-      sku: product.sku,
-      supplier: product.supplier,
-      stockAvail: product.stock,
-      quantity: quantity,
-      unitPrice: product.price,
-      total: quantity * product.price
-    };
-    
-    setItems([...items, newItem]);
+    setItems(prevItems => {
+      const existingIndex = prevItems.findIndex(item => item.sku === product.sku);
+      const price = convertPrice(product);
+      if (existingIndex !== -1) {
+        let newQuantity = prevItems[existingIndex].quantity + quantity;
+        return prevItems.map((item, idx) =>
+          idx === existingIndex
+            ? { ...item, quantity: newQuantity, total: newQuantity * item.unitPrice }
+            : item
+        );
+      } else {
+        const newItem: RequestItem = {
+          id: Math.max(0, ...prevItems.map(i => i.id)) + 1,
+          product_id: product.id,
+          name: product.name,
+          sku: product.sku,
+          supplier: product.supplier,
+          stockAvail: product.stock,
+          quantity: quantity,
+          unitPrice: price,
+          total: quantity * price,
+          currency: currency
+        };
+        return [...prevItems, newItem];
+      }
+    });
   };
 
   const handleSearchClick = () => {
@@ -103,7 +193,7 @@ const PurchaseRequestForm = () => {
   };
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-  const tax = subtotal * 0.07; // 7% tax
+  const tax = subtotal * 0.11; // 11% tax
   const total = subtotal + tax;
 
   const getStockColor = (stock: number) => {
@@ -112,19 +202,80 @@ const PurchaseRequestForm = () => {
     return 'text-green-600 bg-green-50';
   };
 
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    setSubmitError('');
+    if (!user) {
+      setSubmitError('You must be logged in.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (items.length === 0) {
+      setSubmitError('Please add at least one product.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (!requiredBy) {
+      setSubmitError('Please select a required by date.');
+      setIsSubmitting(false);
+      return;
+    }
+    // Lookup product_id dan supplier_id by SKU dari products
+    const items_detail = items.map(item => {
+      const foundProduct = products.find(p => p.sku === item.sku);
+      return {
+        product_id: item.product_id || (foundProduct && foundProduct.id ? foundProduct.id : null),
+        name: item.name,
+        sku: item.sku,
+        supplier_id: foundProduct && foundProduct.id && !foundProduct.id.startsWith('external-') ? foundProduct.supplier : null,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        total: item.total,
+        status: 'pending',
+        comment: notes,
+        currency: item.currency
+      };
+    });
+    const prData = {
+      submitted_by: user.id,
+      date: new Date().toISOString().slice(0, 10),
+      department,
+      required_by: requiredBy,
+      items: items.length,
+      total_cost: total,
+      status: 'pending',
+      items_detail
+    };
+    const result = await createPurchaseRequest(prData);
+    if (result.error) {
+      setSubmitError(result.error);
+    } else {
+      setItems([]);
+      setDepartment('Dental Surgery');
+      setRequiredBy(new Date().toISOString().slice(0, 10));
+      setLocation('');
+      setNotes('');
+      setShowSuccess(true);
+    }
+    setIsSubmitting(false);
+  };
+
   return (
     <>
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-900">Create Purchase Request</h2>
-          <div className="flex space-x-3">
-            {/* <button className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors">
-              AI Suggestions
-            </button> */}
+          {/* <div className="flex space-x-3">
             <button className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
               Save Draft
             </button>
-          </div>
+            <button
+              className="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+              onClick={() => navigate('/purchase-request-drafts')}
+            >
+              Lihat Draft
+            </button>
+          </div> */}
         </div>
 
         {/* Form Fields */}
@@ -146,7 +297,7 @@ const PurchaseRequestForm = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">Required By</label>
             <input
               type="date"
-              value="2022-12-15"
+              value={requiredBy}
               onChange={(e) => setRequiredBy(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -213,12 +364,6 @@ const PurchaseRequestForm = () => {
                 <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-4 px-4">
                     <div className="flex items-center">
-                      {item.name === 'Charmflex Regular' && (
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
-                      )}
-                      {item.name === 'Latex Gloves (Box)' && (
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
-                      )}
                       <span className="font-medium text-gray-900">{item.name}</span>
                     </div>
                   </td>
@@ -231,12 +376,22 @@ const PurchaseRequestForm = () => {
                   </td>
                   <td className="py-4 px-4">
                     <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => updateQuantity(item.id, -1)}
-                        className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
+                      {item.quantity === 1 ? (
+                        <button
+                          onClick={() => removeItem(item.id)}
+                          className="w-6 h-6 rounded-full border border-red-300 flex items-center justify-center hover:bg-red-100 text-red-600"
+                          title="Hapus dari keranjang"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => updateQuantity(item.id, -1)}
+                          className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                      )}
                       <span className="w-8 text-center font-medium">{item.quantity}</span>
                       <button
                         onClick={() => updateQuantity(item.id, 1)}
@@ -246,8 +401,8 @@ const PurchaseRequestForm = () => {
                       </button>
                     </div>
                   </td>
-                  <td className="py-4 px-4 text-gray-600">${item.unitPrice.toFixed(2)}</td>
-                  <td className="py-4 px-4 font-medium text-gray-900">${item.total.toFixed(2)}</td>
+                  <td className="py-4 px-4 text-gray-600">{new Intl.NumberFormat(userSettings?.language || 'en', { style: 'currency', currency: item.currency, minimumFractionDigits: 2 }).format(item.unitPrice)}</td>
+                  <td className="py-4 px-4 font-medium text-gray-900">{new Intl.NumberFormat(userSettings?.language || 'en', { style: 'currency', currency: item.currency, minimumFractionDigits: 2 }).format(item.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -259,25 +414,45 @@ const PurchaseRequestForm = () => {
           <div className="w-64 space-y-2">
             <div className="flex justify-between">
               <span className="text-gray-600">Subtotal:</span>
-              <span className="font-medium">${subtotal.toFixed(2)}</span>
+              <span className="font-medium">{currencyFormatter.format(subtotal)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">Tax (11%):</span>
-              <span className="font-medium">${tax.toFixed(2)}</span>
+              <span className="font-medium">{currencyFormatter.format(tax)}</span>
             </div>
             <div className="flex justify-between text-lg font-semibold border-t pt-2">
               <span>Total:</span>
-              <span>${total.toFixed(2)}</span>
+              <span>{currencyFormatter.format(total)}</span>
             </div>
           </div>
         </div>
 
         {/* Submit Button */}
-        <div className="flex justify-end">
-          <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
-            Submit PR
+        <div className="flex justify-end space-x-2">
+          {/* <button
+            className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors font-medium"
+            onClick={saveDraft}
+            type="button"
+          >
+            Save Draft
+          </button> */}
+          {/* {saveStatus === 'success' && (
+            <div className="ml-4 px-6 py-2 bg-green-100 text-green-800 rounded-lg font-medium">
+              Draft berhasil disimpan ke database!
+            </div>
+          )} */}
+          {saveStatus === 'error' && (
+            <div className="px-6 py-2 bg-red-100 text-red-700 rounded-lg font-medium">Gagal menyimpan draft ke database.</div>
+          )}
+          <button
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Submitting...' : 'Submit PR'}
           </button>
         </div>
+        {submitError && <div className="text-red-600 mt-2 text-sm">{submitError}</div>}
       </div>
 
       {/* Product Catalog Popup */}
@@ -285,6 +460,23 @@ const PurchaseRequestForm = () => {
         isOpen={showCatalogPopup}
         onClose={() => setShowCatalogPopup(false)}
         onAddToRequest={handleAddFromCatalog}
+      />
+      <ModalDialog
+        open={showSuccess}
+        onClose={() => setShowSuccess(false)}
+        title="Success"
+        message="Purchase Request submitted!"
+        type="success"
+      />
+      {showDraftSaved && (
+        <ModalDialog open={showDraftSaved} onClose={() => setShowDraftSaved(false)} title="Draft Saved" message="Your purchase request draft has been saved!" type="success" />
+      )}
+      <ModalDialog
+        open={showStockAlert}
+        onClose={() => setShowStockAlert(false)}
+        title="Stok Tidak Cukup"
+        message="Jumlah yang diminta melebihi stok yang tersedia. Jumlah akan disesuaikan dengan stok maksimum."
+        type="error"
       />
     </>
   );

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react'; // Import useEffect
 import { X, Search, Filter, Grid, List, Heart, Star, Plus, Eye, ShoppingCart, MoreHorizontal } from 'lucide-react';
 import AddCustomProductPopup from './AddCustomProductPopup';
+import { useUserSettings } from '../App';
+import { getAllProductsMerged } from '../api/product';
+import ProductImage from './ProductImage';
 
 interface Product {
   id: string;
@@ -59,6 +62,8 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
   const [selectedDateAddedFilter, setSelectedDateAddedFilter] = useState<string>(''); // e.g., 'Last 7 days'
   const [selectedStatusFilters, setSelectedStatusFilters] = useState<string[]>([]); // e.g., ['Active', 'Urgent Need']
 
+  const [products, setProducts] = useState<Product[]>([]);
+
   const categories = [
     { name: 'All Products', count: 1245 },
     { name: 'Dental Instruments', count: 342 },
@@ -95,69 +100,6 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
     { name: 'DentaMed Supplies', count: 342, checked: false },
     { name: 'MediSupply Co.', count: 256, checked: false },
     { name: 'Dental Depot', count: 198, checked: false }
-  ];
-
-  const products: Product[] = [
-    {
-      id: 'DB-1001',
-      name: 'Premium Dental Brush',
-      sku: 'DB-1001',
-      supplier: 'Cobra Dental Indonesia',
-      price: 12.50,
-      rating: 4.8,
-      reviewCount: 124,
-      image: 'https://images.pexels.com/photos/3845810/pexels-photo-3845810.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&fit=crop',
-      stock: 3,
-      stockStatus: 'low-stock',
-      category: 'Brushes',
-      description: 'Premium dental brush designed for professional dental cleaning procedures. Features soft bristles that are gentle on teeth and gums.',
-      isRecommended: true
-    },
-    {
-      id: 'LG-3045',
-      name: 'Latex Gloves (Box)',
-      sku: 'LG-3045',
-      supplier: 'Cobra Dental Indonesia',
-      price: 15.00,
-      rating: 4.5,
-      reviewCount: 98,
-      image: 'https://images.pexels.com/photos/4386467/pexels-photo-4386467.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&fit=crop',
-      stock: 5,
-      stockStatus: 'in-stock',
-      category: 'Gloves',
-      description: 'High-quality latex gloves for medical and dental procedures. Powder-free and comfortable fit.',
-      isRecommended: true
-    },
-    {
-      id: 'CR-2034',
-      name: 'Charmflex Regular',
-      sku: 'CR-2034',
-      supplier: 'Cobra Dental Indonesia',
-      price: 8.75,
-      rating: 4.2,
-      reviewCount: 56,
-      image: 'https://images.pexels.com/photos/6812540/pexels-photo-6812540.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&fit=crop',
-      stock: 2,
-      stockStatus: 'low-stock',
-      category: 'Restorative',
-      description: 'Flexible dental material for various restorative procedures.',
-      isRecommended: true
-    },
-    {
-      id: 'DI-5023',
-      name: 'Dental Impression Material',
-      sku: 'DI-5023',
-      supplier: 'DentaMed Supplies',
-      price: 45.00,
-      rating: 4.7,
-      reviewCount: 87,
-      image: 'https://images.pexels.com/photos/6812540/pexels-photo-6812540.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&fit=crop',
-      stock: 8,
-      stockStatus: 'in-stock',
-      category: 'Instruments',
-      description: 'High-precision dental impression material for accurate dental molds.',
-      isRecommended: true
-    }
   ];
 
   const [customProducts, setCustomProducts] = useState<Product[]>([
@@ -294,6 +236,8 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
     }
   ]);
 
+  const DEFAULT_IMAGE = 'https://via.placeholder.com/300x200?text=No+Image';
+
   const getStockColor = (status: string) => {
     switch (status) {
       case 'in-stock': return 'text-green-600 bg-green-50';
@@ -341,7 +285,7 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
       price: customProduct.price,
       rating: 0,
       reviewCount: 0,
-      image: 'https://images.pexels.com/photos/3845810/pexels-photo-3845810.jpeg?auto=compress&cs=tinysrgb&w=300&h=200&fit=crop', // Default image
+      image: DEFAULT_IMAGE, // Default image
       stock: 0,
       stockStatus: 'out-of-stock',
       category: customProduct.category,
@@ -390,21 +334,41 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
     setSelectedStatusFilters([]);
   };
 
+  // Handler untuk search/filter produk
+  const handleSearch = () => {
+    getAllProductsMerged({
+      sku: searchTerm.length > 0 && /^([A-Za-z0-9\-]+)$/.test(searchTerm) ? searchTerm : undefined,
+      name: searchTerm.length > 0 && !/^([A-Za-z0-9\-]+)$/.test(searchTerm) ? searchTerm : undefined,
+      supplier: selectedSuppliers.length > 0 ? selectedSuppliers[0] : undefined
+    }).then(res => {
+      if (res.data) setProducts(res.data);
+    });
+  };
+
+  // Trigger search saat searchTerm atau selectedSuppliers berubah
+  useEffect(() => {
+    handleSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, selectedSuppliers]);
+
   // --- Filtered Products Logic (updated to include all filters) ---
-  const filteredProducts = (activeTab === 'Browse Catalog' ? products : customProducts).filter(product => {
+  const filteredProducts = (activeTab === 'Browse Catalog'
+    ? products.filter(product => product.id.startsWith('external-'))
+    : customProducts
+  ).filter(product => {
     const matchesSearch = searchTerm === '' ||
-                          product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          product.description.toLowerCase().includes(searchTerm.toLowerCase());
+      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.description.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesCategory = selectedCategory === 'All' || product.category === selectedCategory ||
-                            (activeTab === 'Custom Product' && selectedCategory === 'Urgent Need' && product.isUrgentNeed);
+      (activeTab === 'Custom Product' && selectedCategory === 'Urgent Need' && product.isUrgentNeed);
 
     const matchesSupplier = activeTab === 'Custom Product' || selectedSuppliers.length === 0 ||
-                            selectedSuppliers.includes(product.supplier);
+      selectedSuppliers.includes(product.supplier);
 
     const matchesPrice = (minPrice === '' || product.price >= parseFloat(minPrice)) &&
-                         (maxPrice === '' || product.price <= parseFloat(maxPrice));
+      (maxPrice === '' || product.price <= parseFloat(maxPrice));
 
     const matchesRating = selectedRating === 0 || product.rating >= selectedRating;
 
@@ -434,18 +398,10 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
 
     const matchesStatus = () => {
       if (activeTab !== 'Custom Product' || selectedStatusFilters.length === 0) return true;
-      
-      // For Urgent Need, check the specific flag
       if (selectedStatusFilters.includes('Urgent Need') && product.isUrgentNeed) return true;
-
-      // For Active/Draft, you might need a more robust 'status' property on CustomProduct
-      // For this example, let's assume 'Active' implies it's not 'out-of-stock' and not Urgent Need
-      // And 'Draft' implies out-of-stock or some other pending state. This is just illustrative.
       if (selectedStatusFilters.includes('Active') && product.stockStatus !== 'out-of-stock' && !product.isUrgentNeed) return true;
-      if (selectedStatusFilters.includes('Draft') && product.stockStatus === 'out-of-stock' && !product.isUrgentNeed) return true; // simplified for example
-
-      // If no explicit match found for statuses, return false unless it's for 'All' or no filters selected
-      return false; 
+      if (selectedStatusFilters.includes('Draft') && product.stockStatus === 'out-of-stock' && !product.isUrgentNeed) return true;
+      return false;
     };
 
     return matchesSearch && matchesCategory && matchesSupplier && matchesPrice && matchesRating && matchesDateAdded() && matchesStatus();
@@ -454,6 +410,26 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
   const currentProductsDisplay = activeTab === 'Browse Catalog' ? products : customProducts;
   const currentCategories = activeTab === 'Browse Catalog' ? categories : customCategories;
   const currentCategoryTabs = activeTab === 'Browse Catalog' ? categoryTabs : customCategoryTabs;
+
+  const { settings: userSettings, loading: settingsLoading } = useUserSettings();
+  if (settingsLoading) return <div>Loading...</div>;
+  const currency = userSettings?.currency || 'USD';
+  const language = userSettings?.language || 'en';
+  const currencyFormatter = new Intl.NumberFormat(language, { style: 'currency', currency, minimumFractionDigits: 2 });
+  const convertPrice = (product: Product) => {
+    if (currency === 'IDR') {
+      if (product.id.startsWith('external-')) return product.price;
+      return product.price * 16000;
+    }
+    return product.price;
+  };
+
+  useEffect(() => {
+    // This useEffect is now redundant as filtering is handled by handleSearch
+    // getAllProductsMerged().then(res => {
+    //   if (res.data) setProducts(res.data);
+    // });
+  }, []);
 
   if (!isOpen) return null;
 
@@ -473,11 +449,7 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
         </div>
       )}
       <div className="relative">
-        <img
-          src={product.image}
-          alt={product.name}
-          className="w-full h-32 object-cover"
-        />
+        <ProductImage src={product.image || DEFAULT_IMAGE} alt={product.name} className="w-full h-32 object-cover" />
         {product.isRecommended && (
           <div className="absolute top-2 left-2">
             <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
@@ -522,7 +494,9 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
         </div>
 
         <div className="flex items-center justify-between mb-3">
-          <span className="font-bold text-gray-900">${product.price.toFixed(2)}</span>
+          <span className="font-bold text-gray-900">
+            {currencyFormatter.format(convertPrice(product))}
+          </span>
           <div className="flex items-center space-x-1">
             <Star className="w-3 h-3 text-yellow-400 fill-current" />
             <span className="text-xs font-medium">{product.rating}</span>
@@ -565,11 +539,7 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
         </div>
       )}
       <div className="flex-shrink-0 w-24 h-24 mr-4 relative">
-        <img
-          src={product.image}
-          alt={product.name}
-          className="w-full h-full object-cover rounded"
-        />
+        <ProductImage src={product.image || DEFAULT_IMAGE} alt={product.name} className="w-full h-full object-cover rounded" />
         {product.isRecommended && (
           <div className="absolute top-1 left-1">
             <span className="bg-blue-500 text-white text-xs px-1.5 py-0.5 rounded-full">
@@ -599,7 +569,9 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
         </div>
       </div>
       <div className="flex flex-col items-end justify-between ml-4">
-        <span className="font-bold text-gray-900 text-lg mb-2">${product.price.toFixed(2)}</span>
+        <span className="font-bold text-gray-900 text-lg mb-2">
+          {currencyFormatter.format(convertPrice(product))}
+        </span>
         {!isSelected && (
           <span className={`text-xs px-2 py-1 rounded-full font-medium ${getStockColor(product.stockStatus)} mb-3`}>
             {product.stock} in stock
@@ -1016,11 +988,7 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
 
               <div className="flex-1 p-6 overflow-y-auto">
                 <div className="mb-6 relative">
-                  <img
-                    src={selectedProduct.image}
-                    alt={selectedProduct.name}
-                    className="w-full h-48 object-cover rounded-lg mb-4"
-                  />
+                  <ProductImage src={selectedProduct.image || DEFAULT_IMAGE} alt={selectedProduct.name} className="w-full h-48 object-cover rounded-lg mb-4" />
                   <button className="absolute top-4 right-4 p-2 bg-white rounded-full shadow-md">
                     <Heart className="w-5 h-5 text-gray-400" />
                   </button>
@@ -1048,7 +1016,9 @@ const ProductCatalogPopup: React.FC<ProductCatalogPopupProps> = ({
                     <span className="text-sm font-medium">{selectedProduct.rating}</span>
                     <span className="text-sm text-gray-500">({selectedProduct.reviewCount} reviews)</span>
                   </div>
-                  <div className="text-2xl font-bold text-gray-900 mb-4">${selectedProduct.price.toFixed(2)}</div>
+                  <div className="text-2xl font-bold text-gray-900 mb-4">
+                    {currencyFormatter.format(convertPrice(selectedProduct))}
+                  </div>
 
                   <div className="flex items-center space-x-2 mb-4">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStockColor(selectedProduct.stockStatus)}`}>

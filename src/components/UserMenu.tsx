@@ -2,22 +2,19 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, User, Settings, HelpCircle, LogOut } from 'lucide-react';
 import LogoutModal from './LogoutModal';
+import { useAuth } from '../App';
 
-interface UserMenuProps {
-  userName?: string;
-  userRole?: string;
-  userAvatar?: string;
-}
-
-const UserMenu: React.FC<UserMenuProps> = ({ 
-  userName = "Darrell Steward", 
-  userRole = "Super admin",
-  userAvatar = "https://images.pexels.com/photos/2379004/pexels-photo-2379004.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&fit=crop"
-}) => {
+const UserMenu: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { user, role } = useAuth();
+
+  // User info from session
+  const userName = user?.user_metadata?.full_name || user?.email || 'User';
+  const userRole = role ? role.charAt(0).toUpperCase() + role.slice(1) : 'User';
+  const userAvatar = user?.user_metadata?.avatar_url || 'https://images.pexels.com/photos/2379004/pexels-photo-2379004.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&fit=crop';
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -25,7 +22,6 @@ const UserMenu: React.FC<UserMenuProps> = ({
         setIsOpen(false);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
@@ -33,10 +29,8 @@ const UserMenu: React.FC<UserMenuProps> = ({
   const handleLogout = () => {
     setShowLogoutModal(false);
     setIsOpen(false);
-    // Clear any stored authentication data
     localStorage.removeItem('authToken');
     sessionStorage.clear();
-    // Navigate to login page
     navigate('/login');
   };
 
@@ -46,7 +40,6 @@ const UserMenu: React.FC<UserMenuProps> = ({
       label: 'Profile',
       onClick: () => {
         setIsOpen(false);
-        // Navigate to profile page
       }
     },
     {
@@ -54,7 +47,6 @@ const UserMenu: React.FC<UserMenuProps> = ({
       label: 'Settings',
       onClick: () => {
         setIsOpen(false);
-        // Navigate to settings page
       }
     },
     {
@@ -62,7 +54,6 @@ const UserMenu: React.FC<UserMenuProps> = ({
       label: 'Help & Support',
       onClick: () => {
         setIsOpen(false);
-        // Navigate to help page
       }
     },
     {
@@ -94,11 +85,8 @@ const UserMenu: React.FC<UserMenuProps> = ({
           </div>
           <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
         </button>
-
-        {/* Dropdown Menu */}
         {isOpen && (
           <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 py-2 z-50 transform transition-all duration-200 origin-top-right">
-            {/* User Info Header */}
             <div className="px-4 py-3 border-b border-gray-100">
               <div className="flex items-center space-x-3">
                 <img
@@ -112,8 +100,6 @@ const UserMenu: React.FC<UserMenuProps> = ({
                 </div>
               </div>
             </div>
-
-            {/* Menu Items */}
             <div className="py-2">
               {menuItems.map((item, index) => (
                 <button
@@ -131,8 +117,6 @@ const UserMenu: React.FC<UserMenuProps> = ({
           </div>
         )}
       </div>
-
-      {/* Logout Confirmation Modal */}
       <LogoutModal
         isOpen={showLogoutModal}
         onClose={() => setShowLogoutModal(false)}

@@ -29,13 +29,13 @@ const Sidebar: React.FC = () => {
         { icon: ShoppingCart, label: 'Purchase Orders', path: '/purchase-orders' }
       ]
     },
-    // {
-    //   section: 'Suppliers Portal',
-    //   items: [
-    //     { icon: Star, label: 'Supplier Ratings', path: '/supplier-ratings' },
-    //     { icon: Package, label: 'Product Catalog', path: '/product-catalog' }
-    //   ]
-    // },
+    {
+      section: 'Suppliers Portal',
+      items: [
+        { icon: Star, label: 'Supplier Ratings', path: '/supplier-ratings' },
+        { icon: Package, label: 'Product Catalog', path: '/product-catalog' }
+      ]
+    },
     {
       section: 'AI Pro Purchasing',
       items: [

@@ -1,6 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Bell, Settings, ChevronDown, Filter, Eye, MessageSquare, X, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import TopBar from '../components/TopBar';
+import { useUserSettings } from '../App';
+import { getPurchaseRequests } from '../api/purchaseRequest';
+import { useAuth } from '../App';
+import ModalDialog from '../components/ModalDialog';
+import { supabase } from '../supabaseClient';
 
 interface PRItem {
   id: string;
@@ -36,115 +41,60 @@ const PurchaseApproval: React.FC = () => {
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [itemComments, setItemComments] = useState<{[key: string]: string}>({});
   const [bulkComment, setBulkComment] = useState('');
+  const [modal, setModal] = useState<{ open: boolean; title: string; message: string; type?: 'success' | 'error' | 'info' }>({ open: false, title: '', message: '', type: 'info' });
+  const [userNames, setUserNames] = useState<{[userId: string]: string}>({});
 
-  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([
-    {
-      id: 'PR-2022-0042',
-      submittedBy: 'Darrell Steward',
-      date: 'Dec 6, 2022',
-      department: 'Dental Surgery',
-      requiredBy: 'Dec 15, 2022',
-      items: 5,
-      totalCost: 521.63,
-      status: 'Pending Approval',
-      statusColor: 'bg-yellow-100 text-yellow-800',
-      items_detail: [
-        { 
-          id: 'item-1',
-          name: 'Dental Brush', 
-          sku: 'DB-1001', 
-          supplier: 'Cobra Dental Indonesia', 
-          quantity: 10, 
-          unitPrice: 12.50, 
-          total: 125.00,
-          status: 'pending'
-        },
-        { 
-          id: 'item-2',
-          name: 'Charmflex Regular', 
-          sku: 'CR-2034', 
-          supplier: 'Blackrock', 
-          quantity: 15, 
-          unitPrice: 8.75, 
-          total: 131.25,
-          status: 'pending'
-        },
-        { 
-          id: 'item-3',
-          name: 'Latex Gloves (Box)', 
-          sku: 'LG-3045', 
-          supplier: 'Pitede Amoauna', 
-          quantity: 20, 
-          unitPrice: 15.00, 
-          total: 300.00,
-          status: 'pending'
-        },
-        { 
-          id: 'item-4',
-          name: 'Dental Mirror Set', 
-          sku: 'DM-2001', 
-          supplier: 'MediDent Supplies', 
-          quantity: 25, 
-          unitPrice: 8.50, 
-          total: 212.50,
-          status: 'pending'
-        },
-        { 
-          id: 'item-5',
-          name: 'Sterilization Pouches', 
-          sku: 'SP-3045', 
-          supplier: 'Dental Care Co', 
-          quantity: 100, 
-          unitPrice: 6.30, 
-          total: 630.00,
-          status: 'pending'
+  const { settings: userSettings, loading: settingsLoading } = useUserSettings();
+  if (settingsLoading) return <div>Loading...</div>;
+  const currency = userSettings?.currency || 'USD';
+  const language = userSettings?.language || 'en';
+  const currencyFormatter = new Intl.NumberFormat(language, { style: 'currency', currency, minimumFractionDigits: 2 });
+
+  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      getPurchaseRequests(user.id).then(res => {
+        if (res.data) {
+          // Mapping data dari backend ke struktur PurchaseRequest lama
+          const mapped = res.data.map((pr: any) => ({
+            id: pr.pr_id || pr.id,
+            submittedBy: pr.submitted_by || '-',
+            date: pr.date,
+            department: pr.department,
+            requiredBy: pr.required_by,
+            items: pr.items,
+            totalCost: pr.total_cost,
+            status: pr.status,
+            statusColor: pr.status === 'Pending Approval' ? 'bg-yellow-100 text-yellow-800' : pr.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800',
+            items_detail: pr.purchase_request_items || [],
+          }));
+          setPurchaseRequests(mapped);
         }
-      ]
-    },
-    {
-      id: 'PR-2022-0043',
-      submittedBy: 'Jane Cooper',
-      date: 'Dec 7, 2022',
-      department: 'General Dentistry',
-      requiredBy: 'Dec 20, 2022',
-      items: 3,
-      totalCost: 842.50,
-      status: 'Pending Approval',
-      statusColor: 'bg-yellow-100 text-yellow-800',
-      items_detail: [
-        { 
-          id: 'item-6',
-          name: 'Dental Forceps', 
-          sku: 'DF-2001', 
-          supplier: 'MediDent Supplies', 
-          quantity: 5, 
-          unitPrice: 45.00, 
-          total: 225.00,
-          status: 'pending'
-        },
-        { 
-          id: 'item-7',
-          name: 'Composite Filling Material', 
-          sku: 'CF-3045', 
-          supplier: 'Dental Care Co', 
-          quantity: 10, 
-          unitPrice: 32.75, 
-          total: 327.50,
-          status: 'pending'
-        },
-        { 
-          id: 'item-8',
-          name: 'Anesthetic Cartridges', 
-          sku: 'AC-4001', 
-          supplier: 'PharmaDent', 
-          quantity: 50, 
-          unitPrice: 5.80, 
-          total: 290.00,
-          status: 'pending'
-        }
-      ]
+      });
     }
-  ]);
+  }, [user]);
+
+  useEffect(() => {
+    if (purchaseRequests.length > 0) {
+      const userIds = Array.from(new Set(purchaseRequests.map(pr => pr.submittedBy).filter(Boolean)));
+      userIds.forEach(async (userId) => {
+        if (!userNames[userId]) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', userId)
+            .single();
+          setUserNames(prev => ({
+            ...prev,
+            [userId]: data?.full_name || data?.email || userId
+          }));
+        }
+      });
+    }
+    // eslint-disable-next-line
+  }, [purchaseRequests]);
 
   const selectedPRData = purchaseRequests.find(pr => pr.id === selectedPR);
 
@@ -169,40 +119,54 @@ const PurchaseApproval: React.FC = () => {
     }
   };
 
-  const handleItemAction = (itemIds: string[], action: 'approved' | 'rejected', comment?: string) => {
+  // Tambahkan fungsi update status item di Supabase
+  async function updateItemStatus(itemId: string, status: string, comment?: string) {
+    await supabase
+      .from('purchase_request_items')
+      .update({ status, comment })
+      .eq('id', itemId);
+  }
+
+  const handleItemAction = async (itemIds: string[], action: 'approved' | 'rejected', comment?: string) => {
     if (action === 'rejected' && !comment?.trim()) {
-      alert('Please add a comment before rejecting items');
+      setModal({ open: true, title: 'Error', message: 'Please add a comment before rejecting items', type: 'error' });
       return;
     }
-
-    setPurchaseRequests(prevRequests => 
-      prevRequests.map(pr => 
-        pr.id === selectedPR 
-          ? {
-              ...pr,
-              items_detail: pr.items_detail.map(item => 
-                itemIds.includes(item.id)
-                  ? { ...item, status: action, comment: comment || '' }
-                  : item
-              )
-            }
-          : pr
-      )
-    );
-
+    // Update status di database
+    for (const itemId of itemIds) {
+      await updateItemStatus(itemId, action, comment);
+    }
+    // Fetch ulang data PR dari database
+    if (user) {
+      const res = await getPurchaseRequests(user.id);
+      if (res.data) {
+        const mapped = res.data.map((pr: any) => ({
+          id: pr.pr_id || pr.id,
+          submittedBy: pr.submitted_by || '-',
+          date: pr.date,
+          department: pr.department,
+          requiredBy: pr.required_by,
+          items: pr.items,
+          totalCost: pr.total_cost,
+          status: pr.status,
+          statusColor: pr.status === 'Pending Approval' ? 'bg-yellow-100 text-yellow-800' : pr.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800',
+          items_detail: pr.purchase_request_items || [],
+        }));
+        setPurchaseRequests(mapped);
+      }
+    }
     // Clear selections and comments
     setSelectedItems([]);
     setBulkComment('');
     setItemComments({});
-    
     const actionText = action === 'approved' ? 'approved' : 'rejected';
     const itemText = itemIds.length === 1 ? 'item' : 'items';
-    alert(`${itemIds.length} ${itemText} ${actionText} successfully${comment ? ' with comment' : ''}`);
+    setModal({ open: true, title: 'Success', message: `${itemIds.length} ${itemText} ${actionText} successfully${comment ? ' with comment' : ''}`, type: 'success' });
   };
 
   const handleBulkAction = (action: 'approved' | 'rejected') => {
     if (selectedItems.length === 0) {
-      alert('Please select items to perform bulk action');
+      setModal({ open: true, title: 'Info', message: 'Please select items to perform bulk action', type: 'info' });
       return;
     }
     
@@ -218,7 +182,7 @@ const PurchaseApproval: React.FC = () => {
       .map(item => item.id);
     
     if (pendingItemIds.length === 0) {
-      alert('No pending items to approve/reject');
+      setModal({ open: true, title: 'Info', message: 'No pending items to approve/reject', type: 'info' });
       return;
     }
     
@@ -366,7 +330,7 @@ const PurchaseApproval: React.FC = () => {
 
           <div className="flex">
             {/* Left Panel - PR List */}
-            <div className="w-1/2 border-r border-gray-200">
+            <div className="w-1/2 border-r border-gray-200 overflow-y-auto h-[600px]">
               {purchaseRequests.map((pr) => (
                 <div
                   key={pr.id}
@@ -390,7 +354,7 @@ const PurchaseApproval: React.FC = () => {
                   </div>
                   
                   <div className="text-sm text-gray-600 mb-2">
-                    Submitted by: {pr.submittedBy} • {pr.date}
+                    Submitted by: {userNames[pr.submittedBy] || '-'} • {pr.date}
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4 text-sm">
@@ -408,7 +372,7 @@ const PurchaseApproval: React.FC = () => {
                     </div>
                     <div>
                       <span className="text-gray-500">TOTAL COST</span>
-                      <div className="font-medium">${pr.totalCost}</div>
+                      <div className="font-medium">{currencyFormatter.format(pr.totalCost)}</div>
                     </div>
                   </div>
                 </div>
@@ -436,7 +400,7 @@ const PurchaseApproval: React.FC = () => {
                     </div>
 
                     <div className="text-sm text-gray-600 mb-4">
-                      Submitted by: {selectedPRData.submittedBy} • {selectedPRData.date}
+                      Submitted by: {userNames[selectedPRData.submittedBy] || '-'} • {selectedPRData.date}
                     </div>
 
                     <div className="grid grid-cols-2 gap-6 mb-6">
@@ -454,7 +418,7 @@ const PurchaseApproval: React.FC = () => {
                       </div>
                       <div>
                         <span className="text-sm text-gray-500">TOTAL COST</span>
-                        <div className="font-medium">${selectedPRData.totalCost}</div>
+                        <div className="font-medium">{currencyFormatter.format(selectedPRData.totalCost)}</div>
                       </div>
                     </div>
 
@@ -580,8 +544,16 @@ const PurchaseApproval: React.FC = () => {
                                   </div>
                                 </td>
                                 <td className="py-3 px-2 text-sm">{item.quantity}</td>
-                                <td className="py-3 px-2 text-sm">${item.unitPrice.toFixed(2)}</td>
-                                <td className="py-3 px-2 text-sm font-medium">${item.total.toFixed(2)}</td>
+                                <td className="py-3 px-2 text-sm">{
+                                  currencyFormatter.format(
+                                    item.unitPrice !== undefined && item.unitPrice !== null
+                                      ? item.unitPrice
+                                      : (item as any).unit_price !== undefined && (item as any).unit_price !== null
+                                        ? (item as any).unit_price
+                                        : item.total && item.quantity ? item.total / item.quantity : 0
+                                  )
+                                }</td>
+                                <td className="py-3 px-2 text-sm font-medium">{currencyFormatter.format(item.total)}</td>
                                 <td className="py-3 px-2">
                                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getItemStatusColor(item.status)}`}>
                                     {getItemStatusText(item.status)}
@@ -660,6 +632,7 @@ const PurchaseApproval: React.FC = () => {
           </div>
         </div>
       </main>
+      <ModalDialog open={modal.open} onClose={() => setModal({ ...modal, open: false })} title={modal.title} message={modal.message} type={modal.type} />
     </>
   );
 };

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Star, CheckCircle, AlertCircle } from 'lucide-react';
+import { useUserSettings } from '../App';
 
 interface PRItem {
   id: string;
@@ -43,7 +44,13 @@ const CreatePurchaseOrderPopup: React.FC<CreatePurchaseOrderPopupProps> = ({
   supplier,
   onConfirm
 }) => {
+  const { settings: userSettings, loading: settingsLoading } = useUserSettings();
+  const currency = userSettings?.currency || 'IDR';
+  const language = userSettings?.language || 'id-ID';
+  const currencyFormatter = new Intl.NumberFormat(language, { style: 'currency', currency });
   const [isCreating, setIsCreating] = useState(false);
+
+  if (settingsLoading) return null;
 
   const handleConfirm = async () => {
     setIsCreating(true);
@@ -105,7 +112,7 @@ const CreatePurchaseOrderPopup: React.FC<CreatePurchaseOrderPopupProps> = ({
                 
                 <div>
                   <span className="text-sm text-gray-500">Total Value</span>
-                  <div className="text-xl font-bold text-gray-900">${prDetails.totalValue.toFixed(2)}</div>
+                  <div className="text-xl font-bold text-gray-900">{currencyFormatter.format(prDetails.totalValue)}</div>
                 </div>
               </div>
               
@@ -188,15 +195,15 @@ const CreatePurchaseOrderPopup: React.FC<CreatePurchaseOrderPopupProps> = ({
                     <tr key={item.id} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                       <td className="py-3 px-4 font-medium text-gray-900">{item.name}</td>
                       <td className="py-3 px-4 text-gray-600">{item.quantity}</td>
-                      <td className="py-3 px-4 text-gray-600">${item.unitPrice.toFixed(2)}</td>
-                      <td className="py-3 px-4 font-medium text-gray-900">${item.totalPrice.toFixed(2)}</td>
+                      <td className="py-3 px-4 text-gray-600">{currencyFormatter.format(item.unitPrice)}</td>
+                      <td className="py-3 px-4 font-medium text-gray-900">{currencyFormatter.format(item.totalPrice)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="bg-gray-50 border-t-2 border-gray-200">
                     <td colSpan={3} className="py-3 px-4 font-medium text-gray-900 text-right">Total</td>
-                    <td className="py-3 px-4 font-bold text-gray-900">${prDetails.totalValue.toFixed(2)}</td>
+                    <td className="py-3 px-4 font-bold text-gray-900">{currencyFormatter.format(prDetails.totalValue)}</td>
                   </tr>
                 </tfoot>
               </table>
